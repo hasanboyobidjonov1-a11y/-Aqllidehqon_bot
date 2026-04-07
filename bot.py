@@ -435,26 +435,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await msg.edit_text(result, parse_mode="HTML")
     return
-
-    ekin_nomi = update.message.text.strip()
-
-    msg = await update.message.reply_text(
-        "⏳ AI tahlil qilmoqda..."
-    )
-
-    result = await ai_analyze(ekin_nomi)
-
-    await update.message.reply_text(result)
- 
-        result = clean_markdown(result)
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🌱 Boshqa ekin so'rash", callback_data="ekish_menu")],
-            [InlineKeyboardButton("🏠 Bosh menyu", callback_data="main_menu")],
-        ])
-        await msg.delete()
-        header = f"🌱 <b>{ekin_nomi.upper()} — Ekish tavsiyasi</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
-        parts = split_text(result)
-        for i, part in enumerate(parts):
             is_last = (i == len(parts) - 1)
             text = (header + part) if i == 0 else part
             await update.message.reply_text(
@@ -462,12 +442,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=keyboard if is_last else None,
                 parse_mode="HTML"
             )
-    else:
-        await update.message.reply_text(
-            "Iltimos, quyidagi menyudan birini tanlang 👇",
-            reply_markup=get_main_menu()
-        )
-
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not await is_subscribed(user_id, context):
