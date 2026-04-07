@@ -431,7 +431,21 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Bu bir necha soniya olishi mumkin.",
             parse_mode="HTML"
         )
-        prompt = (
+       result = await ai_analyze(ekin_nomi)
+
+    await msg.edit_text(result, parse_mode="HTML")
+    return
+
+else:
+    ekin_nomi = update.message.text.strip()
+
+    msg = await update.message.reply_text(
+        "⏳ AI tahlil qilmoqda..."
+    )
+
+    result = await ai_analyze(ekin_nomi)
+
+    await update.message.reply_text(result)
             f"Sen O'zbekiston qishloq xo'jaligi bo'yicha professional agronommisan. "
             f"'{ekin_nomi}' ekini uchun quyidagilarni O'zbek tilida batafsil va professional tarzda yoz:\n\n"
             f"1. 📅 Ekish vaqti (oylar ko'rsatilsin)\n"
