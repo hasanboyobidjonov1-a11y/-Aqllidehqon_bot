@@ -436,7 +436,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await msg.edit_text(result, parse_mode="HTML")
     return
 
-else:
     ekin_nomi = update.message.text.strip()
 
     msg = await update.message.reply_text(
