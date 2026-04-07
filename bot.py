@@ -445,20 +445,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = await ai_analyze(ekin_nomi)
 
     await update.message.reply_text(result)
-            f"Sen O'zbekiston qishloq xo'jaligi bo'yicha professional agronommisan. "
-            f"'{ekin_nomi}' ekini uchun quyidagilarni O'zbek tilida batafsil va professional tarzda yoz:\n\n"
-            f"1. 📅 Ekish vaqti (oylar ko'rsatilsin)\n"
-            f"2. 🌱 Tuproq tayyorlash (haydash, o'g'itlash)\n"
-            f"3. 💧 Sug'orish rejimi (necha kundan bir, qancha)\n"
-            f"4. 🧪 O'g'itlash tavsiyasi (NPK miqdorlari)\n"
-            f"5. 🌿 Parvarishlash (o't o'chirish, ishlash)\n"
-            f"6. 🌾 Yig'im-terim vaqti\n"
-            f"7. 🦠 Asosiy kasalliklar va zararkunandalar\n"
-            f"8. ⚠️ Muhim ogohlantirishlar\n\n"
-            f"Javob O'zbekiston iqlimi va sharoitiga mos, aniq va amaliy bo'lsin. "
-            f"Har bir bandni alohida yoz."
-        )
-        result = ai_analyze(prompt)
+ 
         result = clean_markdown(result)
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🌱 Boshqa ekin so'rash", callback_data="ekish_menu")],
