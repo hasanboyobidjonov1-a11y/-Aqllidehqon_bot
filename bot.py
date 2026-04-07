@@ -1,9 +1,6 @@
 def message_handler(message):
-    # Existing code...
-    prompt = 'Agriculture is a key sector of our economy. Please analyze this message related to agriculture to provide insights.'
-    ai_analyze(prompt)
-    # Existing code...
-    # Replace this instance:
-    # ai_analyze(ekin_nomi)
-    ai_analyze('Ekin nomi haqida batafsil ma’lumot berish.
-    # Existing code...
+    # Constructing the prompt for ai_analyze
+    prompt = "Iltimos, sizga yordam berishingiz uchun quyidagi ko'rsatmalarga rioya qiling: [your detailed instructions here]"
+    result = ai_analyze(prompt)
+    # Handle the result as required
+    return result
