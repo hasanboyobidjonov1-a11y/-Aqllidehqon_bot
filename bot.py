@@ -540,6 +540,6 @@ def main():
 
     logger.info("✅ Smart Dehqon Bot ishga tushdi!")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-
+# update
 if __name__ == "__main__":
     main()
