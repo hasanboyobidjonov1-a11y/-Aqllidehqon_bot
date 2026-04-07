@@ -173,7 +173,7 @@ def split_text(text: str, max_len: int = 3800) -> list:
         parts.append(text)
     return parts
 
-def ai_analyze(prompt: str, image_bytes: bytes = None) -> str:
+async def ai_analyze(prompt: str, image_bytes: bytes = None) -> str:
     if not GEMINI_API_KEY:
         return "❌ Gemini AI kaliti sozlanmagan."
     models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash"]
@@ -556,7 +556,7 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Agar o'simlik sog'lom ko'rinsa, buni ham aniq aytib o't va parvarishlash tavsiyalari ber. "
             "Javob professional va aniq bo'lsin."
         )
-        result = ai_analyze(prompt, image_bytes)
+        result = await ai_analyze(prompt, image_bytes)
         result = clean_markdown(result)
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📸 Yana rasm yuborish", callback_data="disease_menu")],
