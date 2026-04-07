@@ -107,7 +107,6 @@ def get_weather_owm(lat: float, lon: float) -> str:
             f"💧 Namlik: <b>{humidity}%</b>\n"
             f"💨 Shamol: <b>{wind} km/soat</b>\n"
             f"🔵 Bosim: <b>{pressure} hPa</b>\n\n"
-
             f"📅 <b>Kelgusi kunlar:</b>{forecast}"
         )
     except Exception as e:
@@ -147,7 +146,6 @@ def get_weather_wttr(city: str) -> str:
         f"💧 Namlik: <b>{humidity}%</b>\n"
         f"💨 Shamol: <b>{wind} km/soat</b>\n"
         f"🔵 Bosim: <b>{pressure} hPa</b>\n\n"
-
         f"📅 <b>Kelgusi kunlar:</b>{forecast_text}"
     )
 
@@ -454,11 +452,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = await ai_analyze(prompt)
         result = clean_markdown(result)
 
-        # If result is long we keep editing the initial message, otherwise edit with full result
         try:
             await msg.edit_text(result, parse_mode="HTML")
         except Exception:
-            # fallback: send as new message(s)
             header = f"🌱 <b>{ekin_nomi.upper()} — Ekish tavsiyasi</b>\n\n"
             parts = split_text(result)
             keyboard = InlineKeyboardMarkup([
@@ -594,6 +590,5 @@ def main():
     logger.info("✅ Smart Dehqon Bot ishga tushdi!")
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
-# update
 if __name__ == "__main__":
     main()
