@@ -22,11 +22,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8750814350:AAHnMY9oVpCY7IRCHdBXfas_Wg__oxQRzAM")
+# Environment o'zgaruvchilari
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 REQUIRED_CHANNEL = os.environ.get("REQUIRED_CHANNEL", "@smart_dehqon_channel")
 OWM_API_KEY = os.environ.get("OWM_API_KEY", "")
 
+# REGIONS ma'lumotlari
 REGIONS = {
     "🏙 Toshkent sh.": {"city": "Tashkent", "lat": 41.2995, "lon": 69.2401},
     "🌆 Toshkent v.": {"city": "Chirchiq", "lat": 41.4694, "lon": 69.5833},
@@ -44,16 +46,19 @@ REGIONS = {
     "🏜 Qoraqalpog'iston": {"city": "Nukus", "lat": 42.4533, "lon": 59.6139},
 }
 
+# Weather ikonkalari
 WEATHER_ICONS = {
     "01": "☀️", "02": "⛅", "03": "🌥", "04": "☁️",
     "09": "🌧", "10": "🌦", "11": "⛈", "13": "❄️", "50": "🌫",
 }
 
 def get_weather_icon(icon_code: str) -> str:
+    """Ob-havo ikonkasini olish"""
     prefix = icon_code[:2]
     return WEATHER_ICONS.get(prefix, "🌡")
 
 def get_weather(lat: float, lon: float, city_name: str) -> str:
+    """Ob-havoni olish (OWM yoki wttr.in dan)"""
     try:
         if OWM_API_KEY:
             return get_weather_owm(lat, lon)
@@ -64,6 +69,7 @@ def get_weather(lat: float, lon: float, city_name: str) -> str:
         return "❌ Ob-havo ma'lumotini olishda xatolik. Keyinroq urinib ko'ring."
 
 def get_weather_owm(lat: float, lon: float) -> str:
+    """OpenWeatherMap API dan ob-havo olish"""
     try:
         url = (
             f"https://api.openweathermap.org/data/2.5/forecast"
@@ -71,6 +77,7 @@ def get_weather_owm(lat: float, lon: float) -> str:
         )
         resp = requests.get(url, timeout=10)
         data = resp.json()
+        
         if data.get("cod") != "200":
             raise Exception(data.get("message", "API error"))
 
@@ -83,6 +90,7 @@ def get_weather_owm(lat: float, lon: float) -> str:
         icon = get_weather_icon(current["weather"][0]["icon"])
         pressure = current["main"]["pressure"]
 
+        # Kelgusi kunlar prognozi
         days = {}
         for item in data["list"]:
             date = item["dt_txt"][:10]
@@ -114,42 +122,53 @@ def get_weather_owm(lat: float, lon: float) -> str:
         raise
 
 def get_weather_wttr(city: str) -> str:
-    headers = {"User-Agent": "Mozilla/5.0 AgroBot/1.0"}
-    resp = requests.get(
-        f"https://wttr.in/{city}?format=j1",
-        headers=headers,
-        timeout=15
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    current = data["current_condition"][0]
-    temp = current["temp_C"]
-    feels = current["FeelsLikeC"]
-    humidity = current["humidity"]
-    wind = current["windspeedKmph"]
-    pressure = current["pressure"]
-    desc_list = current.get("weatherDesc", [{}])
-    desc = desc_list[0].get("value", "") if desc_list else ""
-    weather3day = data.get("weather", [])
-    forecast_text = ""
-    for i, day in enumerate(weather3day):
-        if i == 0:
-            continue
-        date = day["date"]
-        max_t = day["maxtempC"]
-        min_t = day["mintempC"]
-        desc_day = day["hourly"][4].get("weatherDesc", [{}])[0].get("value", "")
-        forecast_text += f"\n☁️ {date}: {min_t}°C ~ {max_t}°C | {desc_day}"
-    return (
-        f"☀️ <b>Hozirgi holat:</b> {desc}\n"
-        f"🌡 Harorat: <b>{temp}°C</b> (his: {feels}°C)\n"
-        f"💧 Namlik: <b>{humidity}%</b>\n"
-        f"💨 Shamol: <b>{wind} km/soat</b>\n"
-        f"🔵 Bosim: <b>{pressure} hPa</b>\n\n"
-        f"📅 <b>Kelgusi kunlar:</b>{forecast_text}"
-    )
+    """wttr.in dan ob-havo olish"""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 AgroBot/1.0"}
+        resp = requests.get(
+            f"https://wttr.in/{city}?format=j1",
+            headers=headers,
+            timeout=15
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        
+        current = data["current_condition"][0]
+        temp = current["temp_C"]
+        feels = current["FeelsLikeC"]
+        humidity = current["humidity"]
+        wind = current["windspeedKmph"]
+        pressure = current["pressure"]
+        
+        desc_list = current.get("weatherDesc", [{}])
+        desc = desc_list[0].get("value", "") if desc_list else ""
+        
+        weather3day = data.get("weather", [])
+        forecast_text = ""
+        
+        for i, day in enumerate(weather3day):
+            if i == 0:
+                continue
+            date = day["date"]
+            max_t = day["maxtempC"]
+            min_t = day["mintempC"]
+            desc_day = day["hourly"][4].get("weatherDesc", [{}])[0].get("value", "")
+            forecast_text += f"\n☁️ {date}: {min_t}°C ~ {max_t}°C | {desc_day}"
+        
+        return (
+            f"☀️ <b>Hozirgi holat:</b> {desc}\n"
+            f"🌡 Harorat: <b>{temp}°C</b> (his: {feels}°C)\n"
+            f"💧 Namlik: <b>{humidity}%</b>\n"
+            f"💨 Shamol: <b>{wind} km/soat</b>\n"
+            f"🔵 Bosim: <b>{pressure} hPa</b>\n\n"
+            f"📅 <b>Kelgusi kunlar:</b>{forecast_text}"
+        )
+    except Exception as e:
+        logger.error(f"wttr.in error: {e}")
+        return "❌ Ob-havo ma'lumotini olishda xatolik."
 
 def clean_markdown(text: str) -> str:
+    """Markdown formatini HTML ga o'zgartirish"""
     import re
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
     text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
@@ -158,8 +177,10 @@ def clean_markdown(text: str) -> str:
     return text
 
 def split_text(text: str, max_len: int = 3800) -> list:
+    """Uzun matnni qismlarga bo'lish"""
     if len(text) <= max_len:
         return [text]
+    
     parts = []
     while len(text) > max_len:
         split_at = text.rfind('\n', 0, max_len)
@@ -167,16 +188,20 @@ def split_text(text: str, max_len: int = 3800) -> list:
             split_at = max_len
         parts.append(text[:split_at])
         text = text[split_at:].lstrip('\n')
+    
     if text:
         parts.append(text)
+    
     return parts
 
 async def ai_analyze(prompt: str, image_bytes: bytes = None) -> str:
+    """Gemini AI dan tahlil olish"""
     if not GEMINI_API_KEY:
-        return "❌ Gemini AI kaliti sozlanmagan."
+        return "❌ Gemini API kaliti sozlanmagan. Admin bilan bog'lanin."
+    
     models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash"]
     client = genai.Client(api_key=GEMINI_API_KEY)
-    last_error = ""
+    
     for model in models_to_try:
         try:
             if image_bytes:
@@ -192,16 +217,20 @@ async def ai_analyze(prompt: str, image_bytes: bytes = None) -> str:
                 )
             return response.text
         except Exception as e:
-            err = str(e)
-            logger.error(f"Gemini [{model}] error: {err}")
-            last_error = err
-            if "429" in err:
+            err_str = str(e)
+            logger.error(f"Gemini [{model}] error: {err_str}")
+            
+            if "429" in err_str:  # Rate limit
                 time.sleep(2)
                 continue
-            break
-    return "❌ AI xizmatida vaqtinchalik muammo. Biroz kutib qayta urinib ko'ring."
+            
+            if model == models_to_try[-1]:
+                return "❌ AI xizmatida vaqtinchalik muammo. Biroz kutib qayta urinib ko'ring."
+    
+    return "❌ AI xizmatida vaqtinchalik muammo."
 
 async def is_subscribed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Foydalanuvchi kanalga obunali ekanligini tekshirish"""
     try:
         member = await context.bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
         return member.status in [
@@ -214,6 +243,7 @@ async def is_subscribed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> boo
         return False
 
 def get_subscribe_keyboard():
+    """Obuna tugmalari"""
     channel_link = (
         REQUIRED_CHANNEL
         if REQUIRED_CHANNEL.startswith("http")
@@ -225,6 +255,7 @@ def get_subscribe_keyboard():
     ])
 
 def get_not_subscribed_text():
+    """Obuna bo'lmaganda ko'rsatiladigan matn"""
     return (
         "⚠️ <b>Botdan foydalanish uchun avval kanalga obuna bo'ling!</b>\n\n"
         f"📢 Kanal: {REQUIRED_CHANNEL}\n\n"
@@ -232,6 +263,7 @@ def get_not_subscribed_text():
     )
 
 def get_main_menu():
+    """Asosiy menyu"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🌤 Ob-havo", callback_data="weather_menu")],
         [InlineKeyboardButton("🌱 Ekish tavsiyasi (AI)", callback_data="ekish_menu")],
@@ -240,35 +272,47 @@ def get_main_menu():
     ])
 
 def get_weather_menu():
+    """Ob-havo menyu (viloyatlar)"""
     keyboard = []
     region_list = list(REGIONS.keys())
+    
     for i in range(0, len(region_list), 2):
         row = [InlineKeyboardButton(region_list[i], callback_data=f"weather_{i}")]
         if i + 1 < len(region_list):
             row.append(InlineKeyboardButton(region_list[i+1], callback_data=f"weather_{i+1}"))
         keyboard.append(row)
+    
     keyboard.append([InlineKeyboardButton("⬅️ Orqaga", callback_data="main_menu")])
     return InlineKeyboardMarkup(keyboard)
 
 def get_books_menu(page: int):
+    """Kitoblar menyusi"""
     start = page * BOOKS_PER_PAGE
     end = min(start + BOOKS_PER_PAGE, len(BOOKS))
     keyboard = []
+    
     for i in range(start, end):
         title, url = BOOKS[i]
         keyboard.append([InlineKeyboardButton(f"{i+1}. {title[:45]}", url=url)])
+    
     nav_row = []
     if page > 0:
         nav_row.append(InlineKeyboardButton("◀️ Oldingi", callback_data=f"books_menu_{page-1}"))
     if end < len(BOOKS):
         nav_row.append(InlineKeyboardButton("Keyingi ▶️", callback_data=f"books_menu_{page+1}"))
+    
     if nav_row:
         keyboard.append(nav_row)
+    
     keyboard.append([InlineKeyboardButton("⬅️ Orqaga", callback_data="main_menu")])
     return InlineKeyboardMarkup(keyboard)
 
+# ============== COMMAND HANDLERS ==============
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start buyrug'i"""
     user = update.effective_user
+    
     if not await is_subscribed(user.id, context):
         await update.message.reply_text(
             get_not_subscribed_text(),
@@ -276,6 +320,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
         return
+    
     await update.message.reply_text(
         f"Assalomu alaykum, <b>{user.first_name}</b>! 👋\n\n"
         "🌾 <b>Smart Dehqon Botiga</b> xush kelibsiz!\n\n"
@@ -290,12 +335,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
+# ============== BUTTON HANDLERS ==============
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tugma bosilganda"""
     query = update.callback_query
     await query.answer()
     data = query.data
     user_id = update.effective_user.id
 
+    # Obunani tekshirish
     if data == "check_sub":
         if await is_subscribed(user_id, context):
             user = update.effective_user
@@ -315,6 +364,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("❌ Siz hali obuna bo'lmagansiz!", show_alert=True)
         return
 
+    # Obuna tekshirish (boshqa funksiyalar uchun)
     if not await is_subscribed(user_id, context):
         await query.answer("❌ Avval kanalga obuna bo'ling!", show_alert=True)
         await query.edit_message_text(
@@ -324,6 +374,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Asosiy menyu
     if data == "main_menu":
         await query.edit_message_text(
             "🌾 <b>Smart Dehqon Bot</b> — Asosiy menyu\n\n"
@@ -332,6 +383,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
+    # Ob-havo menyu
     elif data == "weather_menu":
         await query.edit_message_text(
             "🌤 <b>Ob-havo</b>\n\n"
@@ -341,23 +393,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
+    # Viloyat ob-havosi
     elif data.startswith("weather_") and data[8:].isdigit():
         idx = int(data[8:])
         region_keys = list(REGIONS.keys())
+        
         if idx >= len(region_keys):
+            await query.answer("Xatolik: Viloyat topilmadi", show_alert=True)
             return
+        
         region_name = region_keys[idx]
         region_info = REGIONS[region_name]
+        
         await query.edit_message_text(
             f"⏳ <b>{region_name}</b> ob-havosi yuklanmoqda...",
             parse_mode="HTML"
         )
+        
         weather_text = get_weather(region_info["lat"], region_info["lon"], region_info["city"])
+        
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("🔄 Yangilash", callback_data=data)],
             [InlineKeyboardButton("⬅️ Viloyatlar", callback_data="weather_menu")],
             [InlineKeyboardButton("🏠 Bosh menyu", callback_data="main_menu")],
         ])
+        
         await query.edit_message_text(
             f"🌤 <b>{region_name} ob-havosi</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -366,7 +426,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
+    # Ekish tavsiyasi menyu
     elif data == "ekish_menu":
+        context.user_data["state"] = "waiting_ekish"
         await query.edit_message_text(
             "🌱 <b>Ekish tavsiyasi (AI)</b>\n\n"
             "Qaysi ekin haqida ma'lumot olmoqchisiz?\n\n"
@@ -382,9 +444,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]),
             parse_mode="HTML"
         )
-        context.user_data["state"] = "waiting_ekish"
 
+    # Kasallik aniqlash menyu
     elif data == "disease_menu":
+        context.user_data["state"] = "waiting_disease_photo"
         await query.edit_message_text(
             "🦠 <b>O'simlik kasalligini aniqlash (AI)</b>\n\n"
             "O'simlik yoki bargning <b>aniq, yorug'</b> rasmini yuboring.\n"
@@ -395,13 +458,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]),
             parse_mode="HTML"
         )
-        context.user_data["state"] = "waiting_disease_photo"
 
+    # Kitoblar menyusi
     elif data.startswith("books_menu_"):
-        page = int(data.replace("books_menu_", ""))
+        page_str = data.replace("books_menu_", "")
+        if not page_str.isdigit():
+            await query.answer("Xatolik!", show_alert=True)
+            return
+        
+        page = int(page_str)
         total_pages = (len(BOOKS) - 1) // BOOKS_PER_PAGE + 1
         start_idx = page * BOOKS_PER_PAGE + 1
         end_idx = min((page + 1) * BOOKS_PER_PAGE, len(BOOKS))
+        
         await query.edit_message_text(
             f"📚 <b>Qishloq xo'jaligi kitoblari</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -411,7 +480,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
+# ============== TEXT MESSAGE HANDLERS ==============
+
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Matn xabarlari"""
     user_id = update.effective_user.id
 
     if not await is_subscribed(user_id, context):
@@ -424,9 +496,10 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     state = context.user_data.get("state", "")
 
+    # Ekish tavsiyasi
     if state == "waiting_ekish":
-        ekin_nomi = update.message.text.strip()
         context.user_data["state"] = ""
+        ekin_nomi = update.message.text.strip()
 
         msg = await update.message.reply_text(
             f"⏳ <b>{ekin_nomi}</b> uchun AI tavsiya tayyorlanmoqda...\n"
@@ -445,8 +518,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"6. 🌾 Yig'im-terim vaqti\n"
             f"7. 🦠 Asosiy kasalliklar va zararkunandalar\n"
             f"8. ⚠️ Muhim ogohlantirishlar\n\n"
-            f"Javob O'zbekiston iqlimi va sharoitiga mos, aniq va amaliy bo'lsin. "
-            f"Har bir bandni alohida yoz."
+            f"Javob O'zbekiston iqlimi va sharoitiga mos, aniq va amaliy bo'lsin."
         )
 
         result = await ai_analyze(prompt)
@@ -454,7 +526,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
             await msg.edit_text(result, parse_mode="HTML")
-        except Exception:
+        except Exception as e:
+            logger.error(f"Edit message error: {e}")
             header = f"🌱 <b>{ekin_nomi.upper()} — Ekish tavsiyasi</b>\n\n"
             parts = split_text(result)
             keyboard = InlineKeyboardMarkup([
@@ -469,56 +542,13 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=keyboard if is_last else None,
                     parse_mode="HTML"
                 )
-        return
 
-    ekin_nomi = update.message.text.strip()
-
-    msg = await update.message.reply_text(
-        "⏳ AI tahlil qilmoqda..."
-    )
-
-    prompt = (
-        f"Sen O'zbekiston qishloq xo'jaligi bo'yicha professional agronommisan. "
-        f"'{ekin_nomi}' ekini uchun quyidagilarni O'zbek tilida batafsil va professional tarzda yoz:\n\n"
-        f"1. 📅 Ekish vaqti (oylar ko'rsatilsin)\n"
-        f"2. 🌱 Tuproq tayyorlash (haydash, o'g'itlash)\n"
-        f"3. 💧 Sug'orish rejimi (necha kundan bir, qancha)\n"
-        f"4. 🧪 O'g'itlash tavsiyasi (NPK miqdorlari)\n"
-        f"5. 🌿 Parvarishlash (o't o'chirish, ishlash)\n"
-        f"6. 🌾 Yig'im-terim vaqti\n"
-        f"7. 🦠 Asosiy kasalliklar va zararkunandalar\n"
-        f"8. ⚠️ Muhim ogohlantirishlar\n\n"
-        f"Javob O'zbekiston iqlimi va sharoitiga mos, aniq va amaliy bo'lsin. "
-        f"Har bir bandni alohida yoz."
-    )
-
-    result = await ai_analyze(prompt)
-
-    await msg.delete()
-
-    result = clean_markdown(result)
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🌱 Boshqa ekin so'rash", callback_data="ekish_menu")],
-        [InlineKeyboardButton("🏠 Bosh menu", callback_data="main_menu")]
-    ])
-
-    header = f"🌱 <b>{ekin_nomi.upper()} — Ekish tavsiyasi</b>\n\n"
-
-    parts = split_text(result)
-
-    for i, part in enumerate(parts):
-        is_last = (i == len(parts) - 1)
-        text = header + part if i == 0 else part
-
-        await update.message.reply_text(
-            text,
-            reply_markup=keyboard if is_last else None,
-            parse_mode="HTML"
-        )
+# ============== PHOTO HANDLERS ==============
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Rasm bosilganda"""
     user_id = update.effective_user.id
+
     if not await is_subscribed(user_id, context):
         await update.message.reply_text(
             get_not_subscribed_text(),
@@ -531,43 +561,58 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if state == "waiting_disease_photo":
         context.user_data["state"] = ""
+        
         msg = await update.message.reply_text(
             "🔍 Rasm tahlil qilinmoqda...\n"
             "AI o'simlikni ko'rib chiqmoqda, biroz kuting."
         )
-        photo = update.message.photo[-1]
-        file = await photo.get_file()
-        image_bytes = bytes(await file.download_as_bytearray())
 
-        prompt = (
-            "Sen o'simlik kasalliklari bo'yicha professional fitopatalogsan. "
-            "Bu rasmni sinchkovlik bilan ko'rib chiqib, O'zbek tilida quyidagilarni batafsil yoz:\n\n"
-            "1. 🌿 O'simlik turi (agar aniqlanib bo'lsa)\n"
-            "2. 🔎 Ko'rinayotgan belgilar (ranglar, dog'lar, deformatsiya va h.k.)\n"
-            "3. 🦠 Kasallik nomi (agar aniqlanib bo'lsa)\n"
-            "4. ⚗️ Kasallik sababi (virus, bakteriya, zamburug', fitofag va h.k.)\n"
-            "5. 💊 Davolash usuli (kimyoviy va biologik preparatlar)\n"
-            "6. 🛡 Oldini olish choralari\n"
-            "7. ⚠️ Qo'shni o'simliklarga xavfi\n\n"
-            "Agar o'simlik sog'lom ko'rinsa, buni ham aniq aytib o't va parvarishlash tavsiyalari ber. "
-            "Javob professional va aniq bo'lsin."
-        )
-        result = await ai_analyze(prompt, image_bytes)
-        result = clean_markdown(result)
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📸 Yana rasm yuborish", callback_data="disease_menu")],
-            [InlineKeyboardButton("🏠 Bosh menyu", callback_data="main_menu")],
-        ])
-        await msg.delete()
-        header = "🦠 <b>O'simlik tahlili natijalari</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
-        parts = split_text(result)
-        for i, part in enumerate(parts):
-            is_last = (i == len(parts) - 1)
-            text = (header + part) if i == 0 else part
+        try:
+            photo = update.message.photo[-1]
+            file = await photo.get_file()
+            image_bytes = bytes(await file.download_as_bytearray())
+
+            prompt = (
+                "Sen o'simlik kasalliklari bo'yicha professional fitopatalogsan. "
+                "Bu rasmni sinchkovlik bilan ko'rib chiqib, O'zbek tilida quyidagilarni batafsil yoz:\n\n"
+                "1. 🌿 O'simlik turi (agar aniqlanib bo'lsa)\n"
+                "2. 🔎 Ko'rinayotgan belgilar (ranglar, dog'lar, deformatsiya va h.k.)\n"
+                "3. 🦠 Kasallik nomi (agar aniqlanib bo'lsa)\n"
+                "4. ⚗️ Kasallik sababi (virus, bakteriya, zamburug', fitofag va h.k.)\n"
+                "5. 💊 Davolash usuli (kimyoviy va biologik preparatlar)\n"
+                "6. 🛡 Oldini olish choralari\n"
+                "7. ⚠️ Qo'shni o'simliklarga xavfi\n\n"
+                "Javob professional va aniq bo'lsin."
+            )
+
+            result = await ai_analyze(prompt, image_bytes)
+            result = clean_markdown(result)
+
+            await msg.delete()
+
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📸 Yana rasm yuborish", callback_data="disease_menu")],
+                [InlineKeyboardButton("🏠 Bosh menyu", callback_data="main_menu")],
+            ])
+
+            header = "🦠 <b>O'simlik tahlili natijalari</b>\n━━━━━━━━━━━━━━━━━━━━\n\n"
+            parts = split_text(result)
+
+            for i, part in enumerate(parts):
+                is_last = (i == len(parts) - 1)
+                text = (header + part) if i == 0 else part
+                await update.message.reply_text(
+                    text,
+                    reply_markup=keyboard if is_last else None,
+                    parse_mode="HTML"
+                )
+
+        except Exception as e:
+            logger.error(f"Photo handler error: {e}")
+            await msg.delete()
             await update.message.reply_text(
-                text,
-                reply_markup=keyboard if is_last else None,
-                parse_mode="HTML"
+                "❌ Rasm tahlilida xatolik. Biroz kutib qayta urinib ko'ring.",
+                reply_markup=get_main_menu()
             )
     else:
         await update.message.reply_text(
@@ -577,17 +622,25 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_main_menu()
         )
 
+# ============== MAIN FUNCTION ==============
+
 def main():
-    if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN sozlanmagan!")
+    """Botni ishga tushirish"""
+    if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN":
+        logger.error("❌ BOT_TOKEN sozlanmagan! .env faylga qo'shing.")
+        raise ValueError("BOT_TOKEN must be set in environment variables")
 
     app = Application.builder().token(BOT_TOKEN).build()
+
+    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
 
     logger.info("✅ Smart Dehqon Bot ishga tushdi!")
+    logger.info(f"📢 Obuna kanali: {REQUIRED_CHANNEL}")
+    
     app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == "__main__":
