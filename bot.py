@@ -1,11 +1,9 @@
-# main.py
 import logging
 import os
 import io
 import time
 import requests
 import PIL.Image
-import google.genai as genai
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
 from telegram.ext import (
     Application,
@@ -25,13 +23,24 @@ logger = logging.getLogger(__name__)
 
 # Environment variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
 REQUIRED_CHANNEL = os.environ.get("REQUIRED_CHANNEL", "@smart_dehqon_channel")
 OWM_API_KEY = os.environ.get("OWM_API_KEY", "")
 
 # Validate required environment variables
 if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN":
     raise ValueError("❌ BOT_TOKEN sozlanmagan!")
+
+if not HF_TOKEN:
+    logger.warning("⚠️ HF_TOKEN sozlanmagan! AI xizmatlar ishlamaydi.")
+
+# Hugging Face API configurations
+HF_API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-base"
+HF_IMAGE_API_URL = "https://api-inference.huggingface.co/models/microsoft/swin-tiny-patch4-window7-224"
+
+HF_HEADERS = {
+    "Authorization": f"Bearer {HF_TOKEN}"
+}
 
 REGIONS = {
     "🏙 Toshkent sh.": {"city": "Tashkent", "lat": 41.2995, "lon": 69.2401},
@@ -196,40 +205,65 @@ def split_text(text: str, max_len: int = 3800) -> list:
     
     return parts
 
-async def ai_analyze(prompt: str, image_bytes: bytes = None) -> str:
-    """Gemini AI dan tahlil olish"""
-    if not GEMINI_API_KEY:
-        return "❌ Gemini API kaliti sozlanmagan. Admin bilan bog'lanin."
+async def ask_ai(prompt: str, image_bytes: bytes = None) -> str:
+    """Hugging Face API dan AI javob olish"""
+    if not HF_TOKEN:
+        return "❌ Hugging Face API kaliti sozlanmagan. Admin bilan bog'lanin."
     
-    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash"]
-    client = genai.Client(api_key=GEMINI_API_KEY)
-    
-    for model in models_to_try:
-        try:
-            if image_bytes:
-                image = PIL.Image.open(io.BytesIO(image_bytes))
-                response = client.models.generate_content(
-                    model=model,
-                    contents=[prompt, image]
-                )
-            else:
-                response = client.models.generate_content(
-                    model=model,
-                    contents=prompt
-                )
-            return response.text
-        except Exception as e:
-            err_str = str(e)
-            logger.error(f"Gemini [{model}] error: {err_str}")
+    try:
+        # Matnli so'rov uchun
+        if not image_bytes:
+            response = requests.post(
+                HF_API_URL,
+                headers=HF_HEADERS,
+                json={"inputs": prompt},
+                timeout=30
+            )
             
-            if "429" in err_str:
-                time.sleep(2)
-                continue
-            
-            if model == models_to_try[-1]:
+            if response.status_code != 200:
+                logger.error(f"HF API error: {response.status_code} - {response.text}")
                 return "❌ AI xizmatida vaqtinchalik muammo. Biroz kutib qayta urinib ko'ring."
+            
+            result = response.json()
+            
+            # Javobni chiqarish
+            if isinstance(result, list) and len(result) > 0:
+                return result[0].get("generated_text", "❌ Javob olinmadi")
+            else:
+                return "❌ Noto'g'ri javob formati"
+        
+        # Rasm tahlili uchun
+        else:
+            response = requests.post(
+                HF_IMAGE_API_URL,
+                headers=HF_HEADERS,
+                data=image_bytes,
+                timeout=30
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"HF Image API error: {response.status_code}")
+                return "❌ Rasm tahlilida muammo. Boshqa rasm yuborib ko'ring."
+            
+            result = response.json()
+            
+            # Natijalarni formatlash
+            if isinstance(result, list):
+                analysis = "🔍 <b>Rasm tahlili natijalari:</b>\n\n"
+                for item in result[:5]:  # Birinchi 5 ta natija
+                    label = item.get("label", "Unknown")
+                    score = round(item.get("score", 0) * 100, 2)
+                    analysis += f"• {label}: {score}%\n"
+                return analysis
+            else:
+                return "❌ Rasm tahlilida xatolik"
     
-    return "❌ AI xizmatida vaqtinchalik muammo."
+    except requests.Timeout:
+        logger.error("HF API timeout")
+        return "❌ Javob vaqti tugadi. Biroz kutib qayta urinib ko'ring."
+    except Exception as e:
+        logger.error(f"AI analyze error: {e}")
+        return f"❌ Xatolik: {str(e)[:100]}"
 
 async def is_subscribed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Foydalanuvchi kanalga obunali ekanligini tekshirish"""
@@ -419,7 +453,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
             
             await query.edit_message_text(
-                f"��� <b>{region_name} ob-havosi</b>\n"
+                f"🌤 <b>{region_name} ob-havosi</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"{weather_text}",
                 reply_markup=keyboard,
@@ -523,7 +557,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Javob O'zbekiston iqlimi va sharoitiga mos, aniq va amaliy bo'lsin."
         )
 
-        result = await ai_analyze(prompt)
+        result = await ask_ai(prompt)
         result = clean_markdown(result)
 
         header = f"🌱 <b>{ekin_nomi.upper()} — Ekish tavsiyasi</b>\n\n"
@@ -533,25 +567,28 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🏠 Bosh menu", callback_data="main_menu")]
         ])
         
-        for i, part in enumerate(parts):
-            is_last = (i == len(parts) - 1)
-            text = header + part if i == 0 else part
-            try:
-                await msg.edit_text(text, parse_mode="HTML") if i == 0 else None
-                if i > 0:
-                    await update.message.reply_text(
-                        text,
-                        reply_markup=keyboard if is_last else None,
-                        parse_mode="HTML"
-                    )
-            except Exception as e:
-                logger.error(f"Message edit error: {e}")
-                if i == 0:
-                    await update.message.reply_text(
-                        text,
-                        reply_markup=None,
-                        parse_mode="HTML"
-                    )
+        try:
+            await msg.edit_text(
+                header + parts[0],
+                reply_markup=None if len(parts) > 1 else keyboard,
+                parse_mode="HTML"
+            )
+            
+            for i in range(1, len(parts)):
+                is_last = (i == len(parts) - 1)
+                await update.message.reply_text(
+                    parts[i],
+                    reply_markup=keyboard if is_last else None,
+                    parse_mode="HTML"
+                )
+        except Exception as e:
+            logger.error(f"Message edit error: {e}")
+            await msg.delete()
+            await update.message.reply_text(
+                header + result[:3800],
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rasm bosilganda"""
@@ -580,20 +617,10 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file = await photo.get_file()
             image_bytes = bytes(await file.download_as_bytearray())
 
-            prompt = (
-                "Sen o'simlik kasalliklari bo'yicha professional fitopatalogsan. "
-                "Bu rasmni sinchkovlik bilan ko'rib chiqib, O'zbek tilida quyidagilarni batafsil yoz:\n\n"
-                "1. 🌿 O'simlik turi (agar aniqlanib bo'lsa)\n"
-                "2. 🔎 Ko'rinayotgan belgilar (ranglar, dog'lar, deformatsiya va h.k.)\n"
-                "3. 🦠 Kasallik nomi (agar aniqlanib bo'lsa)\n"
-                "4. ⚗️ Kasallik sababi (virus, bakteriya, zamburug', fitofag va h.k.)\n"
-                "5. 💊 Davolash usuli (kimyoviy va biologik preparatlar)\n"
-                "6. 🛡 Oldini olish choralari\n"
-                "7. ⚠️ Qo'shni o'simliklarga xavfi\n\n"
-                "Javob professional va aniq bo'lsin."
+            result = await ask_ai(
+                "Bu rasmning tavsifi: O'simlik, kasallik, kasallik turi",
+                image_bytes
             )
-
-            result = await ai_analyze(prompt, image_bytes)
             result = clean_markdown(result)
 
             await msg.delete()
