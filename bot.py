@@ -1,7 +1,8 @@
+# main.py
+import logging
 import os
 import io
 import time
-import logging
 import requests
 import PIL.Image
 import google.genai as genai
@@ -22,13 +23,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Environment o'zgaruvchilari
+# Environment variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 REQUIRED_CHANNEL = os.environ.get("REQUIRED_CHANNEL", "@smart_dehqon_channel")
 OWM_API_KEY = os.environ.get("OWM_API_KEY", "")
 
-# REGIONS ma'lumotlari
+# Validate required environment variables
+if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN":
+    raise ValueError("❌ BOT_TOKEN sozlanmagan!")
+
 REGIONS = {
     "🏙 Toshkent sh.": {"city": "Tashkent", "lat": 41.2995, "lon": 69.2401},
     "🌆 Toshkent v.": {"city": "Chirchiq", "lat": 41.4694, "lon": 69.5833},
@@ -46,7 +50,6 @@ REGIONS = {
     "🏜 Qoraqalpog'iston": {"city": "Nukus", "lat": 42.4533, "lon": 59.6139},
 }
 
-# Weather ikonkalari
 WEATHER_ICONS = {
     "01": "☀️", "02": "⛅", "03": "🌥", "04": "☁️",
     "09": "🌧", "10": "🌦", "11": "⛈", "13": "❄️", "50": "🌫",
@@ -90,7 +93,6 @@ def get_weather_owm(lat: float, lon: float) -> str:
         icon = get_weather_icon(current["weather"][0]["icon"])
         pressure = current["main"]["pressure"]
 
-        # Kelgusi kunlar prognozi
         days = {}
         for item in data["list"]:
             date = item["dt_txt"][:10]
@@ -141,7 +143,7 @@ def get_weather_wttr(city: str) -> str:
         pressure = current["pressure"]
         
         desc_list = current.get("weatherDesc", [{}])
-        desc = desc_list[0].get("value", "") if desc_list else ""
+        desc = desc_list[0].get("value", "") if desc_list else "Ma'lumot yo'q"
         
         weather3day = data.get("weather", [])
         forecast_text = ""
@@ -220,7 +222,7 @@ async def ai_analyze(prompt: str, image_bytes: bytes = None) -> str:
             err_str = str(e)
             logger.error(f"Gemini [{model}] error: {err_str}")
             
-            if "429" in err_str:  # Rate limit
+            if "429" in err_str:
                 time.sleep(2)
                 continue
             
@@ -287,13 +289,19 @@ def get_weather_menu():
 
 def get_books_menu(page: int):
     """Kitoblar menyusi"""
+    if page < 0 or len(BOOKS) == 0:
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Orqaga", callback_data="main_menu")]
+        ])
+    
     start = page * BOOKS_PER_PAGE
     end = min(start + BOOKS_PER_PAGE, len(BOOKS))
     keyboard = []
     
     for i in range(start, end):
-        title, url = BOOKS[i]
-        keyboard.append([InlineKeyboardButton(f"{i+1}. {title[:45]}", url=url)])
+        if i < len(BOOKS):
+            title, url = BOOKS[i]
+            keyboard.append([InlineKeyboardButton(f"{i+1}. {title[:45]}", url=url)])
     
     nav_row = []
     if page > 0:
@@ -306,8 +314,6 @@ def get_books_menu(page: int):
     
     keyboard.append([InlineKeyboardButton("⬅️ Orqaga", callback_data="main_menu")])
     return InlineKeyboardMarkup(keyboard)
-
-# ============== COMMAND HANDLERS ==============
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start buyrug'i"""
@@ -335,8 +341,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
 
-# ============== BUTTON HANDLERS ==============
-
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tugma bosilganda"""
     query = update.callback_query
@@ -344,7 +348,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = update.effective_user.id
 
-    # Obunani tekshirish
     if data == "check_sub":
         if await is_subscribed(user_id, context):
             user = update.effective_user
@@ -364,7 +367,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("❌ Siz hali obuna bo'lmagansiz!", show_alert=True)
         return
 
-    # Obuna tekshirish (boshqa funksiyalar uchun)
     if not await is_subscribed(user_id, context):
         await query.answer("❌ Avval kanalga obuna bo'ling!", show_alert=True)
         await query.edit_message_text(
@@ -374,7 +376,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Asosiy menyu
     if data == "main_menu":
         await query.edit_message_text(
             "🌾 <b>Smart Dehqon Bot</b> — Asosiy menyu\n\n"
@@ -383,7 +384,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
-    # Ob-havo menyu
     elif data == "weather_menu":
         await query.edit_message_text(
             "🌤 <b>Ob-havo</b>\n\n"
@@ -393,7 +393,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
-    # Viloyat ob-havosi
     elif data.startswith("weather_") and data[8:].isdigit():
         idx = int(data[8:])
         region_keys = list(REGIONS.keys())
@@ -410,23 +409,31 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
         
-        weather_text = get_weather(region_info["lat"], region_info["lon"], region_info["city"])
-        
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Yangilash", callback_data=data)],
-            [InlineKeyboardButton("⬅️ Viloyatlar", callback_data="weather_menu")],
-            [InlineKeyboardButton("🏠 Bosh menyu", callback_data="main_menu")],
-        ])
-        
-        await query.edit_message_text(
-            f"🌤 <b>{region_name} ob-havosi</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"{weather_text}",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
+        try:
+            weather_text = get_weather(region_info["lat"], region_info["lon"], region_info["city"])
+            
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Yangilash", callback_data=data)],
+                [InlineKeyboardButton("⬅️ Viloyatlar", callback_data="weather_menu")],
+                [InlineKeyboardButton("🏠 Bosh menyu", callback_data="main_menu")],
+            ])
+            
+            await query.edit_message_text(
+                f"��� <b>{region_name} ob-havosi</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"{weather_text}",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Weather error: {e}")
+            await query.edit_message_text(
+                f"❌ Ob-havo ma'lumotini olishda xatolik.\n{str(e)}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⬅️ Orqaga", callback_data="weather_menu")]
+                ])
+            )
 
-    # Ekish tavsiyasi menyu
     elif data == "ekish_menu":
         context.user_data["state"] = "waiting_ekish"
         await query.edit_message_text(
@@ -445,7 +452,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
-    # Kasallik aniqlash menyu
     elif data == "disease_menu":
         context.user_data["state"] = "waiting_disease_photo"
         await query.edit_message_text(
@@ -459,7 +465,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
 
-    # Kitoblar menyusi
     elif data.startswith("books_menu_"):
         page_str = data.replace("books_menu_", "")
         if not page_str.isdigit():
@@ -467,7 +472,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         page = int(page_str)
-        total_pages = (len(BOOKS) - 1) // BOOKS_PER_PAGE + 1
+        total_pages = (len(BOOKS) - 1) // BOOKS_PER_PAGE + 1 if BOOKS else 1
         start_idx = page * BOOKS_PER_PAGE + 1
         end_idx = min((page + 1) * BOOKS_PER_PAGE, len(BOOKS))
         
@@ -479,8 +484,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_books_menu(page),
             parse_mode="HTML"
         )
-
-# ============== TEXT MESSAGE HANDLERS ==============
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Matn xabarlari"""
@@ -496,7 +499,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     state = context.user_data.get("state", "")
 
-    # Ekish tavsiyasi
     if state == "waiting_ekish":
         context.user_data["state"] = ""
         ekin_nomi = update.message.text.strip()
@@ -524,26 +526,32 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = await ai_analyze(prompt)
         result = clean_markdown(result)
 
-        try:
-            await msg.edit_text(result, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Edit message error: {e}")
-            header = f"🌱 <b>{ekin_nomi.upper()} — Ekish tavsiyasi</b>\n\n"
-            parts = split_text(result)
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🌱 Boshqa ekin so'rash", callback_data="ekish_menu")],
-                [InlineKeyboardButton("🏠 Bosh menu", callback_data="main_menu")]
-            ])
-            for i, part in enumerate(parts):
-                is_last = (i == len(parts) - 1)
-                text = header + part if i == 0 else part
-                await update.message.reply_text(
-                    text,
-                    reply_markup=keyboard if is_last else None,
-                    parse_mode="HTML"
-                )
-
-# ============== PHOTO HANDLERS ==============
+        header = f"🌱 <b>{ekin_nomi.upper()} — Ekish tavsiyasi</b>\n\n"
+        parts = split_text(result)
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🌱 Boshqa ekin so'rash", callback_data="ekish_menu")],
+            [InlineKeyboardButton("🏠 Bosh menu", callback_data="main_menu")]
+        ])
+        
+        for i, part in enumerate(parts):
+            is_last = (i == len(parts) - 1)
+            text = header + part if i == 0 else part
+            try:
+                await msg.edit_text(text, parse_mode="HTML") if i == 0 else None
+                if i > 0:
+                    await update.message.reply_text(
+                        text,
+                        reply_markup=keyboard if is_last else None,
+                        parse_mode="HTML"
+                    )
+            except Exception as e:
+                logger.error(f"Message edit error: {e}")
+                if i == 0:
+                    await update.message.reply_text(
+                        text,
+                        reply_markup=None,
+                        parse_mode="HTML"
+                    )
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rasm bosilganda"""
@@ -611,8 +619,9 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Photo handler error: {e}")
             await msg.delete()
             await update.message.reply_text(
-                "❌ Rasm tahlilida xatolik. Biroz kutib qayta urinib ko'ring.",
-                reply_markup=get_main_menu()
+                f"❌ Rasm tahlilida xatolik: {str(e)}\n\nBiroz kutib qayta urinib ko'ring.",
+                reply_markup=get_main_menu(),
+                parse_mode="HTML"
             )
     else:
         await update.message.reply_text(
@@ -622,26 +631,23 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_main_menu()
         )
 
-# ============== MAIN FUNCTION ==============
-
 def main():
     """Botni ishga tushirish"""
-    if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN":
-        logger.error("❌ BOT_TOKEN sozlanmagan! .env faylga qo'shing.")
-        raise ValueError("BOT_TOKEN must be set in environment variables")
+    try:
+        app = Application.builder().token(BOT_TOKEN).build()
 
-    app = Application.builder().token(BOT_TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CallbackQueryHandler(button_handler))
+        app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
 
-    # Handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-
-    logger.info("✅ Smart Dehqon Bot ishga tushdi!")
-    logger.info(f"📢 Obuna kanali: {REQUIRED_CHANNEL}")
-    
-    app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+        logger.info("✅ Smart Dehqon Bot ishga tushdi!")
+        logger.info(f"📢 Obuna kanali: {REQUIRED_CHANNEL}")
+        
+        app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+    except Exception as e:
+        logger.critical(f"❌ Bot startup error: {e}")
+        raise
 
 if __name__ == "__main__":
     main()
