@@ -2,6 +2,7 @@ import logging
 import os
 import io
 import time
+import base64
 import requests
 import PIL.Image
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
@@ -24,6 +25,8 @@ logger = logging.getLogger(__name__)
 # Environment variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 REQUIRED_CHANNEL = os.environ.get("REQUIRED_CHANNEL", "@smart_dehqon_channel")
 OWM_API_KEY = os.environ.get("OWM_API_KEY", "")
 
@@ -31,16 +34,19 @@ OWM_API_KEY = os.environ.get("OWM_API_KEY", "")
 if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN":
     raise ValueError("❌ BOT_TOKEN sozlanmagan!")
 
-if not HF_TOKEN:
-    logger.warning("⚠️ HF_TOKEN sozlanmagan! AI xizmatlar ishlamaydi.")
+if not GEMINI_API_KEY and not OPENAI_API_KEY and not HF_TOKEN:
+    logger.warning("⚠️ Hech qanday AI API kaliti sozlanmagan!")
 
-# Hugging Face API configurations
-HF_API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-base"
-HF_IMAGE_API_URL = "https://api-inference.huggingface.co/models/microsoft/swin-tiny-patch4-window7-224"
+# Hugging Face API configurations (fallback uchun)
+HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.1"
+HF_IMAGE_API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-large"
 
 HF_HEADERS = {
     "Authorization": f"Bearer {HF_TOKEN}"
 }
+
+# Gemini API
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 REGIONS = {
     "🏙 Toshkent sh.": {"city": "Tashkent", "lat": 41.2995, "lon": 69.2401},
@@ -65,12 +71,10 @@ WEATHER_ICONS = {
 }
 
 def get_weather_icon(icon_code: str) -> str:
-    """Ob-havo ikonkasini olish"""
     prefix = icon_code[:2]
     return WEATHER_ICONS.get(prefix, "🌡")
 
 def get_weather(lat: float, lon: float, city_name: str) -> str:
-    """Ob-havoni olish (OWM yoki wttr.in dan)"""
     try:
         if OWM_API_KEY:
             return get_weather_owm(lat, lon)
@@ -81,7 +85,6 @@ def get_weather(lat: float, lon: float, city_name: str) -> str:
         return "❌ Ob-havo ma'lumotini olishda xatolik. Keyinroq urinib ko'ring."
 
 def get_weather_owm(lat: float, lon: float) -> str:
-    """OpenWeatherMap API dan ob-havo olish"""
     try:
         url = (
             f"https://api.openweathermap.org/data/2.5/forecast"
@@ -89,7 +92,7 @@ def get_weather_owm(lat: float, lon: float) -> str:
         )
         resp = requests.get(url, timeout=10)
         data = resp.json()
-        
+
         if data.get("cod") != "200":
             raise Exception(data.get("message", "API error"))
 
@@ -133,7 +136,6 @@ def get_weather_owm(lat: float, lon: float) -> str:
         raise
 
 def get_weather_wttr(city: str) -> str:
-    """wttr.in dan ob-havo olish"""
     try:
         headers = {"User-Agent": "Mozilla/5.0 AgroBot/1.0"}
         resp = requests.get(
@@ -143,20 +145,20 @@ def get_weather_wttr(city: str) -> str:
         )
         resp.raise_for_status()
         data = resp.json()
-        
+
         current = data["current_condition"][0]
         temp = current["temp_C"]
         feels = current["FeelsLikeC"]
         humidity = current["humidity"]
         wind = current["windspeedKmph"]
         pressure = current["pressure"]
-        
+
         desc_list = current.get("weatherDesc", [{}])
         desc = desc_list[0].get("value", "") if desc_list else "Ma'lumot yo'q"
-        
+
         weather3day = data.get("weather", [])
         forecast_text = ""
-        
+
         for i, day in enumerate(weather3day):
             if i == 0:
                 continue
@@ -165,7 +167,7 @@ def get_weather_wttr(city: str) -> str:
             min_t = day["mintempC"]
             desc_day = day["hourly"][4].get("weatherDesc", [{}])[0].get("value", "")
             forecast_text += f"\n☁️ {date}: {min_t}°C ~ {max_t}°C | {desc_day}"
-        
+
         return (
             f"☀️ <b>Hozirgi holat:</b> {desc}\n"
             f"🌡 Harorat: <b>{temp}°C</b> (his: {feels}°C)\n"
@@ -179,7 +181,6 @@ def get_weather_wttr(city: str) -> str:
         return "❌ Ob-havo ma'lumotini olishda xatolik."
 
 def clean_markdown(text: str) -> str:
-    """Markdown formatini HTML ga o'zgartirish"""
     import re
     text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', text)
     text = re.sub(r'\*(.*?)\*', r'<i>\1</i>', text)
@@ -188,10 +189,9 @@ def clean_markdown(text: str) -> str:
     return text
 
 def split_text(text: str, max_len: int = 3800) -> list:
-    """Uzun matnni qismlarga bo'lish"""
     if len(text) <= max_len:
         return [text]
-    
+
     parts = []
     while len(text) > max_len:
         split_at = text.rfind('\n', 0, max_len)
@@ -199,74 +199,281 @@ def split_text(text: str, max_len: int = 3800) -> list:
             split_at = max_len
         parts.append(text[:split_at])
         text = text[split_at:].lstrip('\n')
-    
+
     if text:
         parts.append(text)
-    
+
     return parts
 
-async def ask_ai(prompt: str, image_bytes: bytes = None) -> str:
-    """Hugging Face API dan AI javob olish"""
+def ask_gemini_text(prompt: str) -> str:
+    """Google Gemini API dan matnli javob olish"""
+    if not GEMINI_API_KEY:
+        raise Exception("GEMINI_API_KEY sozlanmagan")
+
+    payload = {
+        "contents": [
+            {
+                "parts": [{"text": prompt}]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": 2048,
+        }
+    }
+
+    response = requests.post(
+        f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
+        json=payload,
+        timeout=30
+    )
+
+    if response.status_code != 200:
+        logger.error(f"Gemini API error: {response.status_code} - {response.text[:200]}")
+        raise Exception(f"Gemini API xatosi: {response.status_code}")
+
+    data = response.json()
+    candidates = data.get("candidates", [])
+    if not candidates:
+        raise Exception("Gemini bo'sh javob qaytardi")
+
+    content = candidates[0].get("content", {})
+    parts = content.get("parts", [])
+    if not parts:
+        raise Exception("Gemini javob qismlari bo'sh")
+
+    return parts[0].get("text", "").strip()
+
+def ask_gemini_vision(prompt: str, image_bytes: bytes) -> str:
+    """Google Gemini Vision API dan rasm tahlili"""
+    if not GEMINI_API_KEY:
+        raise Exception("GEMINI_API_KEY sozlanmagan")
+
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "inline_data": {
+                            "mime_type": "image/jpeg",
+                            "data": image_b64
+                        }
+                    },
+                    {"text": prompt}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.5,
+            "maxOutputTokens": 2048,
+        }
+    }
+
+    vision_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+    response = requests.post(
+        f"{vision_url}?key={GEMINI_API_KEY}",
+        json=payload,
+        timeout=40
+    )
+
+    if response.status_code != 200:
+        logger.error(f"Gemini Vision error: {response.status_code} - {response.text[:200]}")
+        raise Exception(f"Gemini Vision API xatosi: {response.status_code}")
+
+    data = response.json()
+    candidates = data.get("candidates", [])
+    if not candidates:
+        raise Exception("Gemini Vision bo'sh javob qaytardi")
+
+    content = candidates[0].get("content", {})
+    parts = content.get("parts", [])
+    if not parts:
+        raise Exception("Gemini Vision javob qismlari bo'sh")
+
+    return parts[0].get("text", "").strip()
+
+def ask_openai_text(prompt: str) -> str:
+    """OpenAI API dan matnli javob olish (fallback)"""
+    if not OPENAI_API_KEY:
+        raise Exception("OPENAI_API_KEY sozlanmagan")
+
+    payload = {
+        "model": "gpt-4o-mini",
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "max_tokens": 2048,
+        "temperature": 0.7
+    }
+
+    response = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json=payload,
+        timeout=30
+    )
+
+    if response.status_code != 200:
+        logger.error(f"OpenAI API error: {response.status_code} - {response.text[:200]}")
+        raise Exception(f"OpenAI API xatosi: {response.status_code}")
+
+    data = response.json()
+    return data["choices"][0]["message"]["content"].strip()
+
+def ask_hf_text(prompt: str) -> str:
+    """Hugging Face API dan matnli javob olish (oxirgi fallback)"""
     if not HF_TOKEN:
-        return "❌ Hugging Face API kaliti sozlanmagan. Admin bilan bog'lanin."
-    
-    try:
-        # Matnli so'rov uchun
-        if not image_bytes:
-            response = requests.post(
-                HF_API_URL,
-                headers=HF_HEADERS,
-                json={"inputs": prompt},
-                timeout=30
-            )
-            
-            if response.status_code != 200:
-                logger.error(f"HF API error: {response.status_code} - {response.text}")
-                return "❌ AI xizmatida vaqtinchalik muammo. Biroz kutib qayta urinib ko'ring."
-            
-            result = response.json()
-            
-            # Javobni chiqarish
-            if isinstance(result, list) and len(result) > 0:
-                return result[0].get("generated_text", "❌ Javob olinmadi")
-            else:
-                return "❌ Noto'g'ri javob formati"
-        
-        # Rasm tahlili uchun
-        else:
-            response = requests.post(
-                HF_IMAGE_API_URL,
-                headers=HF_HEADERS,
-                data=image_bytes,
-                timeout=30
-            )
-            
-            if response.status_code != 200:
-                logger.error(f"HF Image API error: {response.status_code}")
-                return "❌ Rasm tahlilida muammo. Boshqa rasm yuborib ko'ring."
-            
-            result = response.json()
-            
-            # Natijalarni formatlash
-            if isinstance(result, list):
-                analysis = "🔍 <b>Rasm tahlili natijalari:</b>\n\n"
-                for item in result[:5]:  # Birinchi 5 ta natija
-                    label = item.get("label", "Unknown")
-                    score = round(item.get("score", 0) * 100, 2)
-                    analysis += f"• {label}: {score}%\n"
-                return analysis
-            else:
-                return "❌ Rasm tahlilida xatolik"
-    
-    except requests.Timeout:
-        logger.error("HF API timeout")
-        return "❌ Javob vaqti tugadi. Biroz kutib qayta urinib ko'ring."
-    except Exception as e:
-        logger.error(f"AI analyze error: {e}")
-        return f"❌ Xatolik: {str(e)[:100]}"
+        raise Exception("HF_TOKEN sozlanmagan")
+
+    # Mistral modeli uchun instruction format
+    formatted_prompt = f"[INST] {prompt} [/INST]"
+
+    response = requests.post(
+        HF_API_URL,
+        headers=HF_HEADERS,
+        json={
+            "inputs": formatted_prompt,
+            "parameters": {
+                "max_new_tokens": 1024,
+                "temperature": 0.7,
+                "return_full_text": False
+            }
+        },
+        timeout=60
+    )
+
+    if response.status_code == 503:
+        # Model yuklanmoqda, biroz kutish
+        logger.warning("HF model yuklanmoqda, 20s kutilmoqda...")
+        time.sleep(20)
+        response = requests.post(
+            HF_API_URL,
+            headers=HF_HEADERS,
+            json={
+                "inputs": formatted_prompt,
+                "parameters": {
+                    "max_new_tokens": 1024,
+                    "temperature": 0.7,
+                    "return_full_text": False
+                }
+            },
+            timeout=60
+        )
+
+    if response.status_code != 200:
+        raise Exception(f"HF API xatosi: {response.status_code}")
+
+    result = response.json()
+    if isinstance(result, list) and len(result) > 0:
+        return result[0].get("generated_text", "").strip()
+    raise Exception("HF API bo'sh javob qaytardi")
+
+async def ask_ai(prompt: str, image_bytes: bytes = None) -> str:
+    """
+    AI javob olish - Gemini > OpenAI > HF tartibida urinadi.
+    Rasm yuborilsa - Gemini Vision ishlatiladi.
+    """
+    errors = []
+
+    # === RASM TAHLILI ===
+    if image_bytes:
+        # 1. Gemini Vision (asosiy)
+        if GEMINI_API_KEY:
+            try:
+                result = ask_gemini_vision(prompt, image_bytes)
+                if result:
+                    logger.info("✅ Gemini Vision ishlatildi")
+                    return result
+            except Exception as e:
+                logger.warning(f"Gemini Vision xatolik: {e}")
+                errors.append(f"Gemini Vision: {e}")
+
+        # 2. HF Image fallback
+        if HF_TOKEN:
+            try:
+                response = requests.post(
+                    HF_IMAGE_API_URL,
+                    headers=HF_HEADERS,
+                    data=image_bytes,
+                    timeout=40
+                )
+                if response.status_code == 200:
+                    result = response.json()
+                    if isinstance(result, list) and result:
+                        caption = result[0].get("generated_text", "")
+                        if caption:
+                            # Gemini text bilan tahlil qilamiz
+                            if GEMINI_API_KEY:
+                                detail_prompt = (
+                                    f"Rasm tavsifi: '{caption}'\n\n"
+                                    f"Sen O'zbekiston qishloq xo'jaligi bo'yicha expert agronommisan. "
+                                    f"Ushbu rasmda ko'ringan o'simlik yoki kasallik haqida O'zbek tilida batafsil yoz:\n"
+                                    f"1. O'simlik/kasallik nomi\n"
+                                    f"2. Kasallik belgilari\n"
+                                    f"3. Davolash usullari\n"
+                                    f"4. Oldini olish choralari\n"
+                                    f"5. Tavsiya etiladigan preparatlar"
+                                )
+                                try:
+                                    return ask_gemini_text(detail_prompt)
+                                except Exception:
+                                    pass
+                            return f"🔍 Rasm tahlili: {caption}"
+                logger.warning(f"HF Image xatolik: {response.status_code}")
+            except Exception as e:
+                logger.warning(f"HF Image xatolik: {e}")
+                errors.append(f"HF Image: {e}")
+
+        return "❌ Rasm tahlilida muammo yuz berdi. Boshqa aniqroq rasm yuborib ko'ring."
+
+    # === MATNLI SO'ROV ===
+
+    # 1. Gemini (asosiy va eng ishonchli)
+    if GEMINI_API_KEY:
+        try:
+            result = ask_gemini_text(prompt)
+            if result:
+                logger.info("✅ Gemini API ishlatildi")
+                return result
+        except Exception as e:
+            logger.warning(f"Gemini xatolik: {e}")
+            errors.append(f"Gemini: {e}")
+
+    # 2. OpenAI (ikkinchi)
+    if OPENAI_API_KEY:
+        try:
+            result = ask_openai_text(prompt)
+            if result:
+                logger.info("✅ OpenAI API ishlatildi")
+                return result
+        except Exception as e:
+            logger.warning(f"OpenAI xatolik: {e}")
+            errors.append(f"OpenAI: {e}")
+
+    # 3. Hugging Face (oxirgi fallback)
+    if HF_TOKEN:
+        try:
+            result = ask_hf_text(prompt)
+            if result:
+                logger.info("✅ HF API ishlatildi")
+                return result
+        except Exception as e:
+            logger.warning(f"HF xatolik: {e}")
+            errors.append(f"HF: {e}")
+
+    logger.error(f"Barcha AI xizmatlari ishlamadi: {errors}")
+    return (
+        "❌ Hozirda AI xizmati vaqtinchalik ishlamayapti.\n\n"
+        "Iltimos, bir necha daqiqadan so'ng qayta urinib ko'ring.\n"
+        "Muammo davom etsa, admin bilan bog'laning."
+    )
 
 async def is_subscribed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Foydalanuvchi kanalga obunali ekanligini tekshirish"""
     try:
         member = await context.bot.get_chat_member(chat_id=REQUIRED_CHANNEL, user_id=user_id)
         return member.status in [
@@ -279,7 +486,6 @@ async def is_subscribed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> boo
         return False
 
 def get_subscribe_keyboard():
-    """Obuna tugmalari"""
     channel_link = (
         REQUIRED_CHANNEL
         if REQUIRED_CHANNEL.startswith("http")
@@ -291,7 +497,6 @@ def get_subscribe_keyboard():
     ])
 
 def get_not_subscribed_text():
-    """Obuna bo'lmaganda ko'rsatiladigan matn"""
     return (
         "⚠️ <b>Botdan foydalanish uchun avval kanalga obuna bo'ling!</b>\n\n"
         f"📢 Kanal: {REQUIRED_CHANNEL}\n\n"
@@ -299,7 +504,6 @@ def get_not_subscribed_text():
     )
 
 def get_main_menu():
-    """Asosiy menyu"""
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🌤 Ob-havo", callback_data="weather_menu")],
         [InlineKeyboardButton("🌱 Ekish tavsiyasi (AI)", callback_data="ekish_menu")],
@@ -308,51 +512,48 @@ def get_main_menu():
     ])
 
 def get_weather_menu():
-    """Ob-havo menyu (viloyatlar)"""
     keyboard = []
     region_list = list(REGIONS.keys())
-    
+
     for i in range(0, len(region_list), 2):
         row = [InlineKeyboardButton(region_list[i], callback_data=f"weather_{i}")]
         if i + 1 < len(region_list):
             row.append(InlineKeyboardButton(region_list[i+1], callback_data=f"weather_{i+1}"))
         keyboard.append(row)
-    
+
     keyboard.append([InlineKeyboardButton("⬅️ Orqaga", callback_data="main_menu")])
     return InlineKeyboardMarkup(keyboard)
 
 def get_books_menu(page: int):
-    """Kitoblar menyusi"""
     if page < 0 or len(BOOKS) == 0:
         return InlineKeyboardMarkup([
             [InlineKeyboardButton("⬅️ Orqaga", callback_data="main_menu")]
         ])
-    
+
     start = page * BOOKS_PER_PAGE
     end = min(start + BOOKS_PER_PAGE, len(BOOKS))
     keyboard = []
-    
+
     for i in range(start, end):
         if i < len(BOOKS):
             title, url = BOOKS[i]
             keyboard.append([InlineKeyboardButton(f"{i+1}. {title[:45]}", url=url)])
-    
+
     nav_row = []
     if page > 0:
         nav_row.append(InlineKeyboardButton("◀️ Oldingi", callback_data=f"books_menu_{page-1}"))
     if end < len(BOOKS):
         nav_row.append(InlineKeyboardButton("Keyingi ▶️", callback_data=f"books_menu_{page+1}"))
-    
+
     if nav_row:
         keyboard.append(nav_row)
-    
+
     keyboard.append([InlineKeyboardButton("⬅️ Orqaga", callback_data="main_menu")])
     return InlineKeyboardMarkup(keyboard)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start buyrug'i"""
     user = update.effective_user
-    
+
     if not await is_subscribed(user.id, context):
         await update.message.reply_text(
             get_not_subscribed_text(),
@@ -360,7 +561,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
         return
-    
+
     await update.message.reply_text(
         f"Assalomu alaykum, <b>{user.first_name}</b>! 👋\n\n"
         "🌾 <b>Smart Dehqon Botiga</b> xush kelibsiz!\n\n"
@@ -376,7 +577,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tugma bosilganda"""
     query = update.callback_query
     await query.answer()
     data = query.data
@@ -430,28 +630,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("weather_") and data[8:].isdigit():
         idx = int(data[8:])
         region_keys = list(REGIONS.keys())
-        
+
         if idx >= len(region_keys):
             await query.answer("Xatolik: Viloyat topilmadi", show_alert=True)
             return
-        
+
         region_name = region_keys[idx]
         region_info = REGIONS[region_name]
-        
+
         await query.edit_message_text(
             f"⏳ <b>{region_name}</b> ob-havosi yuklanmoqda...",
             parse_mode="HTML"
         )
-        
+
         try:
             weather_text = get_weather(region_info["lat"], region_info["lon"], region_info["city"])
-            
+
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Yangilash", callback_data=data)],
                 [InlineKeyboardButton("⬅️ Viloyatlar", callback_data="weather_menu")],
                 [InlineKeyboardButton("🏠 Bosh menyu", callback_data="main_menu")],
             ])
-            
+
             await query.edit_message_text(
                 f"🌤 <b>{region_name} ob-havosi</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -504,12 +704,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not page_str.isdigit():
             await query.answer("Xatolik!", show_alert=True)
             return
-        
+
         page = int(page_str)
         total_pages = (len(BOOKS) - 1) // BOOKS_PER_PAGE + 1 if BOOKS else 1
         start_idx = page * BOOKS_PER_PAGE + 1
         end_idx = min((page + 1) * BOOKS_PER_PAGE, len(BOOKS))
-        
+
         await query.edit_message_text(
             f"📚 <b>Qishloq xo'jaligi kitoblari</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -520,7 +720,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Matn xabarlari"""
     user_id = update.effective_user.id
 
     if not await is_subscribed(user_id, context):
@@ -566,14 +765,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🌱 Boshqa ekin so'rash", callback_data="ekish_menu")],
             [InlineKeyboardButton("🏠 Bosh menu", callback_data="main_menu")]
         ])
-        
+
         try:
             await msg.edit_text(
                 header + parts[0],
                 reply_markup=None if len(parts) > 1 else keyboard,
                 parse_mode="HTML"
             )
-            
+
             for i in range(1, len(parts)):
                 is_last = (i == len(parts) - 1)
                 await update.message.reply_text(
@@ -589,9 +788,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
+    else:
+        await update.message.reply_text(
+            "📋 Menyu orqali bo'lim tanlang:",
+            reply_markup=get_main_menu(),
+            parse_mode="HTML"
+        )
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Rasm bosilganda"""
     user_id = update.effective_user.id
 
     if not await is_subscribed(user_id, context):
@@ -606,7 +810,7 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if state == "waiting_disease_photo":
         context.user_data["state"] = ""
-        
+
         msg = await update.message.reply_text(
             "🔍 Rasm tahlil qilinmoqda...\n"
             "AI o'simlikni ko'rib chiqmoqda, biroz kuting."
@@ -617,10 +821,19 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             file = await photo.get_file()
             image_bytes = bytes(await file.download_as_bytearray())
 
-            result = await ask_ai(
-                "Bu rasmning tavsifi: O'simlik, kasallik, kasallik turi",
-                image_bytes
+            prompt = (
+                "Sen O'zbekiston qishloq xo'jaligi bo'yicha expert agronommisan. "
+                "Ushbu rasmda ko'ringan o'simlik yoki kasallikni tahlil qilib, O'zbek tilida quyidagilarni yoz:\n\n"
+                "1. 🌿 O'simlik turi (agar aniqlanса)\n"
+                "2. 🦠 Kasallik yoki muammo (agar mavjud bo'lsa)\n"
+                "3. 📋 Kasallik belgilari\n"
+                "4. 💊 Davolash usullari va preparatlar\n"
+                "5. 🛡 Oldini olish choralari\n"
+                "6. ⚠️ Muhim tavsiyalar\n\n"
+                "Agar rasm o'simlik emas bo'lsa yoki sifatsiz bo'lsa, shuni ham ayting."
             )
+
+            result = await ask_ai(prompt, image_bytes)
             result = clean_markdown(result)
 
             await msg.delete()
@@ -646,7 +859,7 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Photo handler error: {e}")
             await msg.delete()
             await update.message.reply_text(
-                f"❌ Rasm tahlilida xatolik: {str(e)}\n\nBiroz kutib qayta urinib ko'ring.",
+                f"❌ Rasm tahlilida xatolik yuz berdi.\n\nBiroz kutib qayta urinib ko'ring.",
                 reply_markup=get_main_menu(),
                 parse_mode="HTML"
             )
@@ -659,7 +872,6 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 def main():
-    """Botni ishga tushirish"""
     try:
         app = Application.builder().token(BOT_TOKEN).build()
 
@@ -670,7 +882,13 @@ def main():
 
         logger.info("✅ Smart Dehqon Bot ishga tushdi!")
         logger.info(f"📢 Obuna kanali: {REQUIRED_CHANNEL}")
-        
+        if GEMINI_API_KEY:
+            logger.info("✅ Gemini API ulandi (asosiy AI)")
+        if OPENAI_API_KEY:
+            logger.info("✅ OpenAI API ulandi (zaxira AI)")
+        if HF_TOKEN:
+            logger.info("✅ Hugging Face ulandi (oxirgi zaxira)")
+
         app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
     except Exception as e:
         logger.critical(f"❌ Bot startup error: {e}")
