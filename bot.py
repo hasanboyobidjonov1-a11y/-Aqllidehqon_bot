@@ -24,29 +24,25 @@ logger = logging.getLogger(__name__)
 
 # Environment variables
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
 REQUIRED_CHANNEL = os.environ.get("REQUIRED_CHANNEL", "@smart_dehqon_channel")
 OWM_API_KEY = os.environ.get("OWM_API_KEY", "")
 
-# Validate required environment variables
 if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN":
     raise ValueError("❌ BOT_TOKEN sozlanmagan!")
 
-if not GEMINI_API_KEY and not OPENAI_API_KEY and not HF_TOKEN:
+if not any([GROQ_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY, HF_TOKEN]):
     logger.warning("⚠️ Hech qanday AI API kaliti sozlanmagan!")
 
-# Hugging Face API configurations (fallback uchun)
-HF_API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.1"
+# API URLs
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+GEMINI_TEXT_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent"
+GEMINI_VISION_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 HF_IMAGE_API_URL = "https://api-inference.huggingface.co/models/Salesforce/blip-image-captioning-large"
-
-HF_HEADERS = {
-    "Authorization": f"Bearer {HF_TOKEN}"
-}
-
-# Gemini API
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+HF_TEXT_API_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta"
 
 REGIONS = {
     "🏙 Toshkent sh.": {"city": "Tashkent", "lat": 41.2995, "lon": 69.2401},
@@ -85,55 +81,51 @@ def get_weather(lat: float, lon: float, city_name: str) -> str:
         return "❌ Ob-havo ma'lumotini olishda xatolik. Keyinroq urinib ko'ring."
 
 def get_weather_owm(lat: float, lon: float) -> str:
-    try:
-        url = (
-            f"https://api.openweathermap.org/data/2.5/forecast"
-            f"?lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=metric&lang=uz&cnt=24"
-        )
-        resp = requests.get(url, timeout=10)
-        data = resp.json()
+    url = (
+        f"https://api.openweathermap.org/data/2.5/forecast"
+        f"?lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=metric&lang=uz&cnt=24"
+    )
+    resp = requests.get(url, timeout=10)
+    data = resp.json()
 
-        if data.get("cod") != "200":
-            raise Exception(data.get("message", "API error"))
+    if data.get("cod") != "200":
+        raise Exception(data.get("message", "API error"))
 
-        current = data["list"][0]
-        temp = round(current["main"]["temp"])
-        feels = round(current["main"]["feels_like"])
-        humidity = current["main"]["humidity"]
-        wind = round(current["wind"]["speed"] * 3.6)
-        desc = current["weather"][0]["description"].capitalize()
-        icon = get_weather_icon(current["weather"][0]["icon"])
-        pressure = current["main"]["pressure"]
+    current = data["list"][0]
+    temp = round(current["main"]["temp"])
+    feels = round(current["main"]["feels_like"])
+    humidity = current["main"]["humidity"]
+    wind = round(current["wind"]["speed"] * 3.6)
+    desc = current["weather"][0]["description"].capitalize()
+    icon = get_weather_icon(current["weather"][0]["icon"])
+    pressure = current["main"]["pressure"]
 
-        days = {}
-        for item in data["list"]:
-            date = item["dt_txt"][:10]
-            if date not in days:
-                days[date] = {"min": [], "max": [], "desc": "", "icon": ""}
-            days[date]["min"].append(item["main"]["temp_min"])
-            days[date]["max"].append(item["main"]["temp_max"])
-            days[date]["desc"] = item["weather"][0]["description"].capitalize()
-            days[date]["icon"] = get_weather_icon(item["weather"][0]["icon"])
+    days = {}
+    for item in data["list"]:
+        date = item["dt_txt"][:10]
+        if date not in days:
+            days[date] = {"min": [], "max": [], "desc": "", "icon": ""}
+        days[date]["min"].append(item["main"]["temp_min"])
+        days[date]["max"].append(item["main"]["temp_max"])
+        days[date]["desc"] = item["weather"][0]["description"].capitalize()
+        days[date]["icon"] = get_weather_icon(item["weather"][0]["icon"])
 
-        forecast = ""
-        for i, (date, d) in enumerate(list(days.items())[:4]):
-            if i == 0:
-                continue
-            mn = round(min(d["min"]))
-            mx = round(max(d["max"]))
-            forecast += f"\n{d['icon']} {date}: {mn}°C ~ {mx}°C | {d['desc']}"
+    forecast = ""
+    for i, (date, d) in enumerate(list(days.items())[:4]):
+        if i == 0:
+            continue
+        mn = round(min(d["min"]))
+        mx = round(max(d["max"]))
+        forecast += f"\n{d['icon']} {date}: {mn}°C ~ {mx}°C | {d['desc']}"
 
-        return (
-            f"{icon} <b>Hozirgi holat:</b> {desc}\n"
-            f"🌡 Harorat: <b>{temp}°C</b> (his: {feels}°C)\n"
-            f"💧 Namlik: <b>{humidity}%</b>\n"
-            f"💨 Shamol: <b>{wind} km/soat</b>\n"
-            f"🔵 Bosim: <b>{pressure} hPa</b>\n\n"
-            f"📅 <b>Kelgusi kunlar:</b>{forecast}"
-        )
-    except Exception as e:
-        logger.error(f"OWM error: {e}")
-        raise
+    return (
+        f"{icon} <b>Hozirgi holat:</b> {desc}\n"
+        f"🌡 Harorat: <b>{temp}°C</b> (his: {feels}°C)\n"
+        f"💧 Namlik: <b>{humidity}%</b>\n"
+        f"💨 Shamol: <b>{wind} km/soat</b>\n"
+        f"🔵 Bosim: <b>{pressure} hPa</b>\n\n"
+        f"📅 <b>Kelgusi kunlar:</b>{forecast}"
+    )
 
 def get_weather_wttr(city: str) -> str:
     try:
@@ -205,273 +197,314 @@ def split_text(text: str, max_len: int = 3800) -> list:
 
     return parts
 
-def ask_gemini_text(prompt: str) -> str:
-    """Google Gemini API dan matnli javob olish"""
-    if not GEMINI_API_KEY:
-        raise Exception("GEMINI_API_KEY sozlanmagan")
+# ─────────────────────────────────────────────
+# AI PROVIDERS
+# ─────────────────────────────────────────────
 
-    payload = {
-        "contents": [
-            {
-                "parts": [{"text": prompt}]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 2048,
-        }
-    }
+def _groq_text(prompt: str) -> str:
+    """Groq API — BEPUL, tez, sifatli (llama-3.3-70b)"""
+    if not GROQ_API_KEY:
+        raise Exception("GROQ_API_KEY yo'q")
 
-    response = requests.post(
-        f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
-        json=payload,
+    resp = requests.post(
+        GROQ_API_URL,
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 2048,
+            "temperature": 0.7
+        },
         timeout=30
     )
 
-    if response.status_code != 200:
-        logger.error(f"Gemini API error: {response.status_code} - {response.text[:200]}")
-        raise Exception(f"Gemini API xatosi: {response.status_code}")
+    if resp.status_code == 429:
+        # Groq rate limit — biroz kutib qayta urinish
+        logger.warning("Groq rate limit, 5s kutilmoqda...")
+        time.sleep(5)
+        resp = requests.post(
+            GROQ_API_URL,
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 2048,
+                "temperature": 0.7
+            },
+            timeout=30
+        )
 
-    data = response.json()
+    if resp.status_code != 200:
+        raise Exception(f"Groq API xatosi: {resp.status_code}")
+
+    data = resp.json()
+    text = data["choices"][0]["message"]["content"].strip()
+    if not text:
+        raise Exception("Groq bo'sh javob")
+    return text
+
+def _gemini_text(prompt: str) -> str:
+    """Gemini 1.5 Flash 8B — bepul, tezroq va yuqori limit"""
+    if not GEMINI_API_KEY:
+        raise Exception("GEMINI_API_KEY yo'q")
+
+    resp = requests.post(
+        f"{GEMINI_TEXT_URL}?key={GEMINI_API_KEY}",
+        json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 2048}
+        },
+        timeout=30
+    )
+
+    if resp.status_code == 429:
+        # Gemini rate limit — 15 soniya kutib qayta urinish
+        logger.warning("Gemini rate limit, 15s kutilmoqda...")
+        time.sleep(15)
+        resp = requests.post(
+            f"{GEMINI_TEXT_URL}?key={GEMINI_API_KEY}",
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": 0.7, "maxOutputTokens": 2048}
+            },
+            timeout=30
+        )
+
+    if resp.status_code != 200:
+        raise Exception(f"Gemini API xatosi: {resp.status_code}")
+
+    data = resp.json()
     candidates = data.get("candidates", [])
     if not candidates:
-        raise Exception("Gemini bo'sh javob qaytardi")
+        raise Exception("Gemini bo'sh javob")
 
-    content = candidates[0].get("content", {})
-    parts = content.get("parts", [])
+    parts = candidates[0].get("content", {}).get("parts", [])
     if not parts:
-        raise Exception("Gemini javob qismlari bo'sh")
+        raise Exception("Gemini javob qismi bo'sh")
 
-    return parts[0].get("text", "").strip()
+    text = parts[0].get("text", "").strip()
+    if not text:
+        raise Exception("Gemini matn bo'sh")
+    return text
 
-def ask_gemini_vision(prompt: str, image_bytes: bytes) -> str:
-    """Google Gemini Vision API dan rasm tahlili"""
+def _gemini_vision(prompt: str, image_bytes: bytes) -> str:
+    """Gemini Vision — rasm tahlili"""
     if not GEMINI_API_KEY:
-        raise Exception("GEMINI_API_KEY sozlanmagan")
+        raise Exception("GEMINI_API_KEY yo'q")
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-    payload = {
-        "contents": [
-            {
+    resp = requests.post(
+        f"{GEMINI_VISION_URL}?key={GEMINI_API_KEY}",
+        json={
+            "contents": [{
                 "parts": [
-                    {
-                        "inline_data": {
-                            "mime_type": "image/jpeg",
-                            "data": image_b64
-                        }
-                    },
+                    {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
                     {"text": prompt}
                 ]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.5,
-            "maxOutputTokens": 2048,
-        }
-    }
-
-    vision_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-    response = requests.post(
-        f"{vision_url}?key={GEMINI_API_KEY}",
-        json=payload,
+            }],
+            "generationConfig": {"temperature": 0.5, "maxOutputTokens": 2048}
+        },
         timeout=40
     )
 
-    if response.status_code != 200:
-        logger.error(f"Gemini Vision error: {response.status_code} - {response.text[:200]}")
-        raise Exception(f"Gemini Vision API xatosi: {response.status_code}")
+    if resp.status_code == 429:
+        logger.warning("Gemini Vision rate limit, 15s kutilmoqda...")
+        time.sleep(15)
+        resp = requests.post(
+            f"{GEMINI_VISION_URL}?key={GEMINI_API_KEY}",
+            json={
+                "contents": [{
+                    "parts": [
+                        {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
+                        {"text": prompt}
+                    ]
+                }],
+                "generationConfig": {"temperature": 0.5, "maxOutputTokens": 2048}
+            },
+            timeout=40
+        )
 
-    data = response.json()
+    if resp.status_code != 200:
+        raise Exception(f"Gemini Vision xatosi: {resp.status_code}")
+
+    data = resp.json()
     candidates = data.get("candidates", [])
     if not candidates:
-        raise Exception("Gemini Vision bo'sh javob qaytardi")
+        raise Exception("Gemini Vision bo'sh javob")
 
-    content = candidates[0].get("content", {})
-    parts = content.get("parts", [])
-    if not parts:
-        raise Exception("Gemini Vision javob qismlari bo'sh")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    text = parts[0].get("text", "").strip() if parts else ""
+    if not text:
+        raise Exception("Gemini Vision matn bo'sh")
+    return text
 
-    return parts[0].get("text", "").strip()
-
-def ask_openai_text(prompt: str) -> str:
-    """OpenAI API dan matnli javob olish (fallback)"""
+def _openai_text(prompt: str) -> str:
+    """OpenAI GPT — fallback"""
     if not OPENAI_API_KEY:
-        raise Exception("OPENAI_API_KEY sozlanmagan")
+        raise Exception("OPENAI_API_KEY yo'q")
 
-    payload = {
-        "model": "gpt-4o-mini",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": 2048,
-        "temperature": 0.7
-    }
-
-    response = requests.post(
+    resp = requests.post(
         "https://api.openai.com/v1/chat/completions",
         headers={
             "Authorization": f"Bearer {OPENAI_API_KEY}",
             "Content-Type": "application/json"
         },
-        json=payload,
+        json={
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 2048,
+            "temperature": 0.7
+        },
         timeout=30
     )
 
-    if response.status_code != 200:
-        logger.error(f"OpenAI API error: {response.status_code} - {response.text[:200]}")
-        raise Exception(f"OpenAI API xatosi: {response.status_code}")
+    if resp.status_code == 429:
+        raise Exception("OpenAI kredit tugagan yoki rate limit")
 
-    data = response.json()
-    return data["choices"][0]["message"]["content"].strip()
+    if resp.status_code != 200:
+        raise Exception(f"OpenAI API xatosi: {resp.status_code}")
 
-def ask_hf_text(prompt: str) -> str:
-    """Hugging Face API dan matnli javob olish (oxirgi fallback)"""
+    text = resp.json()["choices"][0]["message"]["content"].strip()
+    if not text:
+        raise Exception("OpenAI bo'sh javob")
+    return text
+
+def _hf_vision(image_bytes: bytes) -> str:
+    """HF BLIP — rasm captioning (fallback)"""
     if not HF_TOKEN:
-        raise Exception("HF_TOKEN sozlanmagan")
+        raise Exception("HF_TOKEN yo'q")
 
-    # Mistral modeli uchun instruction format
-    formatted_prompt = f"[INST] {prompt} [/INST]"
-
-    response = requests.post(
-        HF_API_URL,
-        headers=HF_HEADERS,
-        json={
-            "inputs": formatted_prompt,
-            "parameters": {
-                "max_new_tokens": 1024,
-                "temperature": 0.7,
-                "return_full_text": False
-            }
-        },
-        timeout=60
+    resp = requests.post(
+        HF_IMAGE_API_URL,
+        headers={"Authorization": f"Bearer {HF_TOKEN}"},
+        data=image_bytes,
+        timeout=40
     )
 
-    if response.status_code == 503:
-        # Model yuklanmoqda, biroz kutish
+    if resp.status_code == 503:
         logger.warning("HF model yuklanmoqda, 20s kutilmoqda...")
         time.sleep(20)
-        response = requests.post(
-            HF_API_URL,
-            headers=HF_HEADERS,
-            json={
-                "inputs": formatted_prompt,
-                "parameters": {
-                    "max_new_tokens": 1024,
-                    "temperature": 0.7,
-                    "return_full_text": False
-                }
-            },
-            timeout=60
+        resp = requests.post(
+            HF_IMAGE_API_URL,
+            headers={"Authorization": f"Bearer {HF_TOKEN}"},
+            data=image_bytes,
+            timeout=40
         )
 
-    if response.status_code != 200:
-        raise Exception(f"HF API xatosi: {response.status_code}")
+    if resp.status_code != 200:
+        raise Exception(f"HF Image xatosi: {resp.status_code}")
 
-    result = response.json()
-    if isinstance(result, list) and len(result) > 0:
-        return result[0].get("generated_text", "").strip()
-    raise Exception("HF API bo'sh javob qaytardi")
+    result = resp.json()
+    if isinstance(result, list) and result:
+        caption = result[0].get("generated_text", "")
+        if caption:
+            return caption
+    raise Exception("HF Image bo'sh natija")
+
+# ─────────────────────────────────────────────
+# ASOSIY AI FUNKSIYASI
+# Tartib: Groq > Gemini > OpenAI (matn uchun)
+#         Gemini Vision > HF+Groq (rasm uchun)
+# ─────────────────────────────────────────────
 
 async def ask_ai(prompt: str, image_bytes: bytes = None) -> str:
-    """
-    AI javob olish - Gemini > OpenAI > HF tartibida urinadi.
-    Rasm yuborilsa - Gemini Vision ishlatiladi.
-    """
     errors = []
 
-    # === RASM TAHLILI ===
+    # ═══ RASM TAHLILI ═══
     if image_bytes:
         # 1. Gemini Vision (asosiy)
         if GEMINI_API_KEY:
             try:
-                result = ask_gemini_vision(prompt, image_bytes)
-                if result:
-                    logger.info("✅ Gemini Vision ishlatildi")
-                    return result
+                result = _gemini_vision(prompt, image_bytes)
+                logger.info("✅ Gemini Vision ishlatildi")
+                return result
             except Exception as e:
-                logger.warning(f"Gemini Vision xatolik: {e}")
-                errors.append(f"Gemini Vision: {e}")
+                logger.warning(f"Gemini Vision: {e}")
+                errors.append(str(e))
 
-        # 2. HF Image fallback
+        # 2. HF BLIP caption + Groq/Gemini tahlil
         if HF_TOKEN:
             try:
-                response = requests.post(
-                    HF_IMAGE_API_URL,
-                    headers=HF_HEADERS,
-                    data=image_bytes,
-                    timeout=40
+                caption = _hf_vision(image_bytes)
+                detail_prompt = (
+                    f"Rasm tavsifi (inglizcha): '{caption}'\n\n"
+                    f"Sen O'zbekiston qishloq xo'jaligi bo'yicha expert agronommisan. "
+                    f"Ushbu rasm tavsifiga asoslanib, O'zbek tilida batafsil yoz:\n"
+                    f"1. 🌿 O'simlik turi (agar aniqlanса)\n"
+                    f"2. 🦠 Kasallik yoki muammo\n"
+                    f"3. 💊 Davolash usullari\n"
+                    f"4. 🛡 Oldini olish choralari\n"
+                    f"5. ⚠️ Muhim tavsiyalar"
                 )
-                if response.status_code == 200:
-                    result = response.json()
-                    if isinstance(result, list) and result:
-                        caption = result[0].get("generated_text", "")
-                        if caption:
-                            # Gemini text bilan tahlil qilamiz
-                            if GEMINI_API_KEY:
-                                detail_prompt = (
-                                    f"Rasm tavsifi: '{caption}'\n\n"
-                                    f"Sen O'zbekiston qishloq xo'jaligi bo'yicha expert agronommisan. "
-                                    f"Ushbu rasmda ko'ringan o'simlik yoki kasallik haqida O'zbek tilida batafsil yoz:\n"
-                                    f"1. O'simlik/kasallik nomi\n"
-                                    f"2. Kasallik belgilari\n"
-                                    f"3. Davolash usullari\n"
-                                    f"4. Oldini olish choralari\n"
-                                    f"5. Tavsiya etiladigan preparatlar"
-                                )
-                                try:
-                                    return ask_gemini_text(detail_prompt)
-                                except Exception:
-                                    pass
-                            return f"🔍 Rasm tahlili: {caption}"
-                logger.warning(f"HF Image xatolik: {response.status_code}")
+                # Tahlil uchun mavjud text AI ishlatish
+                if GROQ_API_KEY:
+                    result = _groq_text(detail_prompt)
+                    logger.info("✅ HF+Groq Vision ishlatildi")
+                    return result
+                elif GEMINI_API_KEY:
+                    result = _gemini_text(detail_prompt)
+                    logger.info("✅ HF+Gemini Vision ishlatildi")
+                    return result
+                else:
+                    return f"🔍 <b>Rasm tahlili:</b> {caption}"
             except Exception as e:
-                logger.warning(f"HF Image xatolik: {e}")
-                errors.append(f"HF Image: {e}")
+                logger.warning(f"HF Vision: {e}")
+                errors.append(str(e))
 
-        return "❌ Rasm tahlilida muammo yuz berdi. Boshqa aniqroq rasm yuborib ko'ring."
+        return (
+            "❌ Rasm tahlili vaqtincha ishlamayapti.\n\n"
+            "Iltimos, aniqroq rasm yuborib qayta urinib ko'ring."
+        )
 
-    # === MATNLI SO'ROV ===
+    # ═══ MATNLI SO'ROV ═══
 
-    # 1. Gemini (asosiy va eng ishonchli)
+    # 1. Groq (eng yaxshi bepul — 30 req/daqiqa, katta model)
+    if GROQ_API_KEY:
+        try:
+            result = _groq_text(prompt)
+            logger.info("✅ Groq API ishlatildi")
+            return result
+        except Exception as e:
+            logger.warning(f"Groq: {e}")
+            errors.append(f"Groq: {e}")
+
+    # 2. Gemini (bepul — 15 req/daqiqa)
     if GEMINI_API_KEY:
         try:
-            result = ask_gemini_text(prompt)
-            if result:
-                logger.info("✅ Gemini API ishlatildi")
-                return result
+            result = _gemini_text(prompt)
+            logger.info("✅ Gemini API ishlatildi")
+            return result
         except Exception as e:
-            logger.warning(f"Gemini xatolik: {e}")
+            logger.warning(f"Gemini: {e}")
             errors.append(f"Gemini: {e}")
 
-    # 2. OpenAI (ikkinchi)
+    # 3. OpenAI (to'lovli — zaxira)
     if OPENAI_API_KEY:
         try:
-            result = ask_openai_text(prompt)
-            if result:
-                logger.info("✅ OpenAI API ishlatildi")
-                return result
+            result = _openai_text(prompt)
+            logger.info("✅ OpenAI API ishlatildi")
+            return result
         except Exception as e:
-            logger.warning(f"OpenAI xatolik: {e}")
+            logger.warning(f"OpenAI: {e}")
             errors.append(f"OpenAI: {e}")
-
-    # 3. Hugging Face (oxirgi fallback)
-    if HF_TOKEN:
-        try:
-            result = ask_hf_text(prompt)
-            if result:
-                logger.info("✅ HF API ishlatildi")
-                return result
-        except Exception as e:
-            logger.warning(f"HF xatolik: {e}")
-            errors.append(f"HF: {e}")
 
     logger.error(f"Barcha AI xizmatlari ishlamadi: {errors}")
     return (
         "❌ Hozirda AI xizmati vaqtinchalik ishlamayapti.\n\n"
-        "Iltimos, bir necha daqiqadan so'ng qayta urinib ko'ring.\n"
-        "Muammo davom etsa, admin bilan bog'laning."
+        "Bir necha daqiqadan so'ng qayta urinib ko'ring.\n"
+        "Muammo davom etsa: @smart_dehqon_channel orqali xabar bering."
     )
+
+# ─────────────────────────────────────────────
+# TELEGRAM HANDLERS
+# ─────────────────────────────────────────────
 
 async def is_subscribed(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     try:
@@ -645,13 +678,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         try:
             weather_text = get_weather(region_info["lat"], region_info["lon"], region_info["city"])
-
             keyboard = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🔄 Yangilash", callback_data=data)],
                 [InlineKeyboardButton("⬅️ Viloyatlar", callback_data="weather_menu")],
                 [InlineKeyboardButton("🏠 Bosh menyu", callback_data="main_menu")],
             ])
-
             await query.edit_message_text(
                 f"🌤 <b>{region_name} ob-havosi</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -662,7 +693,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.error(f"Weather error: {e}")
             await query.edit_message_text(
-                f"❌ Ob-havo ma'lumotini olishda xatolik.\n{str(e)}",
+                f"❌ Ob-havo ma'lumotini olishda xatolik.",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⬅️ Orqaga", callback_data="weather_menu")]
                 ])
@@ -772,7 +803,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=None if len(parts) > 1 else keyboard,
                 parse_mode="HTML"
             )
-
             for i in range(1, len(parts)):
                 is_last = (i == len(parts) - 1)
                 await update.message.reply_text(
@@ -824,13 +854,13 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             prompt = (
                 "Sen O'zbekiston qishloq xo'jaligi bo'yicha expert agronommisan. "
                 "Ushbu rasmda ko'ringan o'simlik yoki kasallikni tahlil qilib, O'zbek tilida quyidagilarni yoz:\n\n"
-                "1. 🌿 O'simlik turi (agar aniqlanса)\n"
+                "1. 🌿 O'simlik turi (agar aniqlansa)\n"
                 "2. 🦠 Kasallik yoki muammo (agar mavjud bo'lsa)\n"
                 "3. 📋 Kasallik belgilari\n"
                 "4. 💊 Davolash usullari va preparatlar\n"
                 "5. 🛡 Oldini olish choralari\n"
                 "6. ⚠️ Muhim tavsiyalar\n\n"
-                "Agar rasm o'simlik emas bo'lsa yoki sifatsiz bo'lsa, shuni ham ayting."
+                "Agar rasm sifatsiz bo'lsa yoki o'simlik ko'rinmasa, shuni ham ayting."
             )
 
             result = await ask_ai(prompt, image_bytes)
@@ -859,7 +889,7 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Photo handler error: {e}")
             await msg.delete()
             await update.message.reply_text(
-                f"❌ Rasm tahlilida xatolik yuz berdi.\n\nBiroz kutib qayta urinib ko'ring.",
+                "❌ Rasm tahlilida xatolik yuz berdi.\n\nBiroz kutib qayta urinib ko'ring.",
                 reply_markup=get_main_menu(),
                 parse_mode="HTML"
             )
@@ -882,12 +912,17 @@ def main():
 
         logger.info("✅ Smart Dehqon Bot ishga tushdi!")
         logger.info(f"📢 Obuna kanali: {REQUIRED_CHANNEL}")
+
+        ai_status = []
+        if GROQ_API_KEY:
+            ai_status.append("✅ Groq (asosiy)")
         if GEMINI_API_KEY:
-            logger.info("✅ Gemini API ulandi (asosiy AI)")
+            ai_status.append("✅ Gemini (2-chi)")
         if OPENAI_API_KEY:
-            logger.info("✅ OpenAI API ulandi (zaxira AI)")
+            ai_status.append("✅ OpenAI (3-chi)")
         if HF_TOKEN:
-            logger.info("✅ Hugging Face ulandi (oxirgi zaxira)")
+            ai_status.append("✅ HF (zaxira)")
+        logger.info(f"🤖 AI: {' | '.join(ai_status) if ai_status else '❌ Hech biri yo`q'}")
 
         app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
     except Exception as e:
